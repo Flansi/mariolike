@@ -70,6 +70,10 @@ COL_GATE = (110, 210, 255)
 COL_FLAG = (255, 130, 180)
 COL_PLAYER = (255, 190, 40)
 COL_DASHITEM = (130, 255, 220)
+COL_ENEMY = (205, 125, 95)
+
+# --- Enemies ---
+ENEMY_SPEED = 90.0
 
 SAVE_FILE = "platformer_save.json"
 
@@ -81,6 +85,7 @@ SAVE_FILE = "platformer_save.json"
 # '|' = Dash-Gate
 # 'D' = Dash-Kern (Item)
 # 'F' = Flagge / Ziel
+# 'G' = Goomba-Gegner (wird beim Laden zu einem Gegner-Objekt)
 
 FIRST_PLATFORM_IS_LOW = True  # 1 Tile Luft -> nur geduckt passierbar
 
@@ -163,6 +168,11 @@ def make_level():
     grid[ground_y-4][172] = 'F'
     for y in range(ground_y-3, ground_y+1): grid[y][172] = 'X'
 
+    # Gegner-Platzierung
+    grid[ground_y-1][22] = 'G'
+    grid[ground_y-1][60] = 'G'
+    grid[ground_y-4][135] = 'G'
+
     return [''.join(row) for row in grid]
 
 LEVEL = make_level()
@@ -203,6 +213,99 @@ class Particle:
         srf = pygame.Surface((s, s), pygame.SRCALPHA)
         pygame.draw.circle(srf, (*self.color, a), (s//2, s//2), s//2)
         surf.blit(srf, (self.x - camx - s//2, self.y - camy - s//2))
+
+class Enemy:
+    def __init__(self, x, y):
+        self.x, self.y = x, y
+        self.w = 36
+        self.h = 36
+        self.dir = random.choice([-1, 1])
+        self.vy = 0.0
+        self.on_ground = False
+
+    @property
+    def rect(self):
+        return pygame.Rect(int(self.x - self.w/2), int(self.y - self.h), self.w, self.h)
+
+    def _blocking(self, ch):
+        return solid(ch) or ch in ('|', 'F')
+
+    def update(self, dt, tilemap):
+        self.vy += GRAVITY * dt
+        self.vy = clamp(self.vy, -MAX_FALL, MAX_FALL)
+
+        self.x += self.dir * ENEMY_SPEED * dt
+        r = self.rect
+        for tx, ty, ch in tiles_in_aabb(tilemap, r.inflate(0, -6)):
+            if not self._blocking(ch):
+                continue
+            tile_r = pygame.Rect(tx*TILE, ty*TILE, TILE, TILE)
+            if not r.colliderect(tile_r):
+                continue
+            if self.dir > 0:
+                self.x = tile_r.left - (self.w/2)
+            else:
+                self.x = tile_r.right + (self.w/2)
+            self.dir *= -1
+            r = self.rect
+
+        self.on_ground = False
+        total_dy = self.vy * dt
+        steps = max(1, int(abs(total_dy)//max(1, TILE//6)) + 1)
+        step_dy = total_dy / steps
+        for _ in range(steps):
+            prev_rect = self.rect.copy()
+            self.y += step_dy
+            r = self.rect
+            for tx, ty, ch in tiles_in_aabb(tilemap, r.inflate(-6, 0)):
+                if not self._blocking(ch):
+                    continue
+                tile_r = pygame.Rect(tx*TILE, ty*TILE, TILE, TILE)
+                if not r.colliderect(tile_r):
+                    continue
+                if step_dy > 0:
+                    if prev_rect.bottom <= tile_r.top and r.bottom >= tile_r.top:
+                        self.y = tile_r.top
+                        self.vy = 0
+                        self.on_ground = True
+                        r = self.rect
+                elif step_dy < 0:
+                    if prev_rect.top >= tile_r.bottom and r.top <= tile_r.bottom:
+                        self.y = tile_r.bottom + self.h
+                        self.vy = 0
+                        r = self.rect
+
+        if self.on_ground:
+            ahead_x = self.x + self.dir * (self.w/2 + 6)
+            ahead_tx = int(ahead_x // TILE)
+            below_ty = int((self.y + 1) // TILE)
+            level_w = len(tilemap[0])
+            level_h = len(tilemap)
+            if (ahead_tx < 0 or ahead_tx >= level_w or below_ty >= level_h or
+                not self._blocking(tilemap[below_ty][ahead_tx])):
+                self.dir *= -1
+
+    def stomp(self, particles):
+        cx, cy = self.x, self.y - self.h/2
+        for _ in range(14):
+            ang = random.random() * math.tau
+            spd = random.uniform(80, 220)
+            particles.append(Particle(cx, cy, math.cos(ang)*spd, math.sin(ang)*spd-160, 0.45, COL_ENEMY, 5))
+
+    def draw(self, surf, camx, camy):
+        base = pygame.Surface((self.w, self.h), pygame.SRCALPHA)
+        body_rect = pygame.Rect(0, self.h//4, self.w, self.h*3//4)
+        pygame.draw.ellipse(base, COL_ENEMY, body_rect)
+        brow_y = self.h//3
+        eye_offset = 8
+        eye_dir = self.dir
+        pygame.draw.circle(base, (30, 30, 45), (self.w//2 - eye_dir*eye_offset, brow_y), 5)
+        pygame.draw.circle(base, (255, 255, 255), (self.w//2 - eye_dir*eye_offset, brow_y), 5, 2)
+        foot_rect = pygame.Rect(6, self.h-10, self.w-12, 8)
+        pygame.draw.rect(base, (155, 95, 75), foot_rect, border_radius=6)
+        dest = base.get_rect()
+        dest.midbottom = (int(self.x - camx), int(self.y - camy))
+        surf.blit(base, dest)
 
 class Player:
     def __init__(self, x, y):
@@ -495,6 +598,13 @@ class Game:
 
     def reset(self):
         self.tilemap = [list(row) for row in LEVEL]
+        self.enemies = []
+        for ty, row in enumerate(self.tilemap):
+            for tx, ch in enumerate(row):
+                if ch == 'G':
+                    foot_y = (ty + 1) * TILE
+                    self.enemies.append(Enemy(tx*TILE + TILE//2, foot_y))
+                    self.tilemap[ty][tx] = ' '
         start_x = 3*TILE + TILE//2
         ground_y = (len(self.tilemap)-1)*TILE
         self.player = Player(start_x, ground_y)
@@ -534,6 +644,7 @@ class Game:
     def update(self, dt):
         if self.state != "RUN": return
 
+        level_h = len(self.tilemap) * TILE
         keys_raw = pygame.key.get_pressed()
         jp = keys_raw[pygame.K_SPACE]
         sh = keys_raw[pygame.K_LSHIFT]
@@ -553,8 +664,15 @@ class Game:
         }
         self._jp_last = jp; self._sh_last = sh; self._cr_last = cr
 
+        prev_rect = self.player.rect.copy()
+        prev_vy = self.player.vy
         self.player.update(dt, keys, self.tilemap, self.particles, self.destroy_gate)
         if keys["jump_pressed"]: self.player.try_jump()
+
+        for enemy in list(self.enemies):
+            enemy.update(dt, self.tilemap)
+            if enemy.y > level_h + 200:
+                self.enemies.remove(enemy)
 
         r = self.player.rect
         for tx, ty, ch in tiles_in_aabb(self.tilemap, r.inflate(8,8)):
@@ -578,13 +696,31 @@ class Game:
                 if r.colliderect(pygame.Rect(tx*TILE, ty*TILE, TILE, TILE)):
                     self.state = "WIN"; break
 
+        r = self.player.rect
+        for enemy in list(self.enemies):
+            if not r.colliderect(enemy.rect):
+                continue
+            stomp = ((prev_vy >= 0 and prev_rect.bottom <= enemy.rect.top + 6 and
+                      r.bottom >= enemy.rect.top) or self.player.dash_t > 0)
+            if stomp:
+                self.player.y = enemy.rect.top
+                self.player.vy = JUMP_VEL * 0.6
+                self.player.on_ground = False
+                self.player.since_ground = 999
+                enemy.stomp(self.particles)
+                self.enemies.remove(enemy)
+                r = self.player.rect
+                continue
+            if self.player.inv <= 0:
+                self.state = "DEAD"
+                break
+
         self.particles = [p for p in self.particles if p.update(dt)]
 
         if self.toast_t > 0:
             self.toast_t -= dt
             if self.toast_t <= 0: self.toast_t = 0; self.toast = ""
 
-        level_h = len(self.tilemap)*TILE
         if self.player.y > level_h + 200: self.state = "DEAD"
 
         self.camera_follow(dt)
@@ -632,6 +768,8 @@ class Game:
                     pygame.draw.rect(self.screen, (220,220,230), pole)
                     pygame.draw.polygon(self.screen, COL_FLAG, [(pole.right, y+10), (pole.right+26, y+22), (pole.right, y+34)])
 
+        for enemy in self.enemies:
+            enemy.draw(self.screen, camx, camy)
         for p in self.particles: p.draw(self.screen, camx, camy)
         self.player.draw(self.screen, camx, camy)
 
