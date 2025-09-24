@@ -74,6 +74,7 @@ COL_GATE = (110, 210, 255)
 COL_FLAG = (255, 130, 180)
 COL_PLAYER = (255, 190, 40)
 COL_DASHITEM = (130, 255, 220)
+COL_GOOMBA = (190, 110, 70)
 
 SAVE_FILE = "platformer_save.json"
 
@@ -423,6 +424,141 @@ class Player:
         dest = img.get_rect(); dest.midbottom = (int(foot_x), int(foot_y))
         surf.blit(img, dest)
 
+class Goomba:
+    SPEED = 110.0
+    GRAVITY = GRAVITY
+    MAX_FALL = MAX_FALL
+
+    def __init__(self, x, y):
+        self.x, self.y = x, y
+        self.w = 42
+        self.h = 42
+        self.vx = random.choice([-1, 1]) * self.SPEED
+        self.vy = 0.0
+        self.facing = 1 if self.vx >= 0 else -1
+        self.alive = True
+        self.remove = False
+        self.squish_timer = 0.0
+
+    @property
+    def rect(self):
+        height = self.current_height()
+        return pygame.Rect(int(self.x - self.w/2), int(self.y - height), self.w, height)
+
+    def current_height(self):
+        if self.alive:
+            return self.h
+        return max(18, int(self.h * 0.45))
+
+    def update(self, dt, tilemap):
+        if self.remove:
+            return
+        if not self.alive:
+            self.squish_timer -= dt
+            if self.squish_timer <= 0:
+                self.remove = True
+            return
+
+        self.vy += self.GRAVITY * dt
+        self.vy = clamp(self.vy, -9999, self.MAX_FALL)
+
+        self.x += self.vx * dt
+        r = self.rect
+        hit_wall = False
+        for tx, ty, ch in tiles_in_aabb(tilemap, r.inflate(2, -4)):
+            if ch in ('|', 'F') or solid(ch):
+                tile_r = pygame.Rect(tx*TILE, ty*TILE, TILE, TILE)
+                if r.colliderect(tile_r):
+                    hit_wall = True
+                    if self.vx > 0:
+                        self.x = tile_r.left - (self.w/2)
+                    elif self.vx < 0:
+                        self.x = tile_r.right + (self.w/2)
+                    r = self.rect
+        if hit_wall:
+            self.vx *= -1
+            self.facing = 1 if self.vx >= 0 else -1
+
+        total_dy = self.vy * dt
+        steps = max(1, int(abs(total_dy)//max(1, TILE//6)) + 1)
+        step_dy = total_dy / steps
+        for _ in range(steps):
+            prev_rect = self.rect.copy()
+            self.y += step_dy
+            r = self.rect
+            for tx, ty, ch in tiles_in_aabb(tilemap, r.inflate(-6, 0)):
+                if ch in ('|', 'F'):
+                    ch = 'X'
+                if solid(ch):
+                    tile_r = pygame.Rect(tx*TILE, ty*TILE, TILE, TILE)
+                    if not r.colliderect(tile_r):
+                        continue
+                    if step_dy > 0:
+                        if prev_rect.bottom <= tile_r.top and r.bottom >= tile_r.top:
+                            self.y = tile_r.top
+                            self.vy = 0
+                            r = self.rect
+                    elif step_dy < 0:
+                        if prev_rect.top >= tile_r.bottom and r.top <= tile_r.bottom:
+                            self.y = tile_r.bottom + self.current_height()
+                            self.vy = 0
+                            r = self.rect
+
+        level_h = len(tilemap) * TILE
+        if self.y > level_h + 200:
+            self.remove = True
+
+    def squish(self, particles):
+        if not self.alive or self.remove:
+            return
+        self.alive = False
+        self.vx = 0
+        self.vy = 0
+        self.squish_timer = 0.35
+        for _ in range(10):
+            vx = random.uniform(-140, 140)
+            vy = random.uniform(-280, -120)
+            particles.append(Particle(self.x, self.y - 12, vx, vy, 0.35, (220, 160, 120), 4))
+
+    def hit_by_dash(self, particles, direction):
+        if self.remove:
+            return
+        self.remove = True
+        for _ in range(14):
+            ang = random.uniform(-0.8, 0.8)
+            spd = random.uniform(200, 420)
+            vx = math.cos(ang) * spd * direction
+            vy = math.sin(ang) * spd - 120
+            particles.append(Particle(self.x, self.y - self.current_height()/2, vx, vy, 0.4, (235, 200, 150), 5))
+
+    def draw(self, surf, camx, camy):
+        if self.remove:
+            return
+        height = self.current_height()
+        foot_x = self.x - camx
+        foot_y = self.y - camy
+        img = pygame.Surface((self.w, height), pygame.SRCALPHA)
+        body_rect = pygame.Rect(0, max(0, height - self.h), self.w, height)
+        pygame.draw.rect(img, COL_GOOMBA, body_rect, border_radius=height//2)
+        eye_y = int(height*0.35)
+        if self.alive:
+            eye_offset = int(self.w*0.2)
+            eye_radius = max(3, self.w//10)
+            left = (self.w//2 - eye_offset, eye_y)
+            right = (self.w//2 + eye_offset, eye_y)
+            pygame.draw.circle(img, (255, 255, 255), left, eye_radius)
+            pygame.draw.circle(img, (255, 255, 255), right, eye_radius)
+            pupil = max(2, eye_radius//2)
+            px = pupil if self.facing <= 0 else -pupil
+            pygame.draw.circle(img, (40, 40, 60), (left[0] + px, left[1]), pupil)
+            pygame.draw.circle(img, (40, 40, 60), (right[0] + px, right[1]), pupil)
+        else:
+            mouth = pygame.Rect(self.w*0.25, eye_y, self.w*0.5, 4)
+            pygame.draw.rect(img, (40, 40, 60), mouth)
+        dest = img.get_rect()
+        dest.midbottom = (int(foot_x), int(foot_y))
+        surf.blit(img, dest)
+
 # ---------------- Game ----------------
 class Game:
     def __init__(self):
@@ -440,6 +576,14 @@ class Game:
         start_x = 3*TILE + TILE//2
         ground_y = (len(self.tilemap)-1)*TILE
         self.player = Player(start_x, ground_y)
+        self.enemies = []
+        for ty, row in enumerate(self.tilemap):
+            for tx, ch in enumerate(row):
+                if ch == 'G':
+                    gx = tx*TILE + TILE//2
+                    gy = (ty+1)*TILE
+                    self.enemies.append(Goomba(gx, gy))
+                    self.tilemap[ty][tx] = ' '
         self.coins_total = sum(row.count('C') for row in self.tilemap)
         self.coins_got = 0
         self.time = 0.0
@@ -450,6 +594,9 @@ class Game:
         self.best_time = load_save().get("best_time")
         self.toast = ""
         self.toast_t = 0.0
+        self._jp_last = False
+        self._sh_last = False
+        self._cr_last = False
 
         self.hints = [
             (TILE*0,   TILE*7, TILE*18,  TILE*13, "S oder ↓: DUCKEN – niedrige Durchgänge nur geduckt!", "always"),
@@ -481,6 +628,8 @@ class Game:
         sh = keys_raw[pygame.K_LSHIFT]
         cr = keys_raw[pygame.K_s] or keys_raw[pygame.K_DOWN]
 
+        prev_player_rect = self.player.rect.copy()
+
         keys = {
             pygame.K_a: keys_raw[pygame.K_a],
             pygame.K_d: keys_raw[pygame.K_d],
@@ -497,6 +646,39 @@ class Game:
 
         self.player.update(dt, keys, self.tilemap, self.particles, self.destroy_gate)
         if keys["jump_pressed"]: self.player.try_jump()
+
+        for enemy in self.enemies:
+            enemy.update(dt, self.tilemap)
+
+        r = self.player.rect
+        for enemy in self.enemies:
+            if enemy.remove or not enemy.alive:
+                continue
+            er = enemy.rect
+            if not r.colliderect(er):
+                continue
+            stomp = (
+                prev_player_rect.bottom <= er.top + 6
+                and self.player.vy >= 0
+                and self.player.y >= prev_player_rect.bottom
+            )
+            if stomp:
+                enemy.squish(self.particles)
+                self.player.vy = JUMP_VEL * 0.55
+                self.player.on_ground = False
+                self.player.since_ground = 999
+                self.player.y = er.top
+                r = self.player.rect
+                continue
+            if self.player.dash_t > 0:
+                direction = self.player.dash_dir if self.player.dash_dir else (1 if self.player.vx >= 0 else -1)
+                enemy.hit_by_dash(self.particles, direction)
+                continue
+            if self.player.inv <= 0:
+                self.state = "DEAD"
+                break
+
+        self.enemies = [e for e in self.enemies if not e.remove]
 
         r = self.player.rect
         for tx, ty, ch in tiles_in_aabb(self.tilemap, r.inflate(8,8)):
@@ -573,6 +755,9 @@ class Game:
                     pole = pygame.Rect(x+TILE//2-2, y, 4, TILE*4)
                     pygame.draw.rect(self.screen, (220,220,230), pole)
                     pygame.draw.polygon(self.screen, COL_FLAG, [(pole.right, y+10), (pole.right+26, y+22), (pole.right, y+34)])
+
+        for enemy in self.enemies:
+            enemy.draw(self.screen, camx, camy)
 
         for p in self.particles: p.draw(self.screen, camx, camy)
         self.player.draw(self.screen, camx, camy)
