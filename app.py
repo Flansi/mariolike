@@ -54,6 +54,8 @@ CROUCH_SPEED_MULT   = 0.55
 CROUCH_ACCEL_MULT   = 0.60
 H_STAND             = 52
 H_CROUCH            = 34
+H_STAND_BIG         = 70
+H_CROUCH_BIG        = 46
 
 # --- Crouch-Slide (Sprint -> Duck) ---
 CROUCH_SLIDE_TRIGGER_SPEED = MAX_SPEED * SPRINT_SPEED_MULT * 0.65
@@ -73,8 +75,12 @@ COL_COIN = (255, 225, 90)
 COL_GATE = (110, 210, 255)
 COL_FLAG = (255, 130, 180)
 COL_PLAYER = (255, 190, 40)
+COL_PLAYER_BIG = (255, 150, 60)
 COL_DASHITEM = (130, 255, 220)
 COL_GOOMBA = (190, 110, 70)
+COL_MUSHROOM_TOP = (220, 80, 80)
+COL_MUSHROOM_DOTS = (255, 235, 210)
+COL_MUSHROOM_STEM = (235, 200, 140)
 
 SAVE_FILE = "platformer_save.json"
 
@@ -86,6 +92,7 @@ SAVE_FILE = "platformer_save.json"
 # '|' = Dash-Gate
 # 'D' = Dash-Kern (Item)
 # 'F' = Flagge / Ziel
+# 'M' = Power-Up-Pilz
 
 # ------------- Utilities -------------
 def clamp(v, a, b):
@@ -154,6 +161,7 @@ class Player:
         self.h_stand = H_STAND
         self.h_crouch = H_CROUCH
         self.h = self.h_stand
+        self.form = "small"
 
         self.vx, self.vy = 0.0, 0.0
         self.on_ground = False
@@ -184,6 +192,7 @@ class Player:
         self.crouch_slide_dir = 0
 
         self.coins = 0
+        self.power_flash = 0.0
 
     @property
     def rect(self):
@@ -204,6 +213,77 @@ class Player:
             if ch in ('|','^','F') or solid(ch):
                 if stand_rect.colliderect(pygame.Rect(tx*TILE, ty*TILE, TILE, TILE)):
                     return False
+        return True
+
+    def _rect_fits(self, tilemap, height):
+        if tilemap is None:
+            return True
+        rect = pygame.Rect(int(self.x - self.w/2), int(self.y - height), self.w, height)
+        for tx, ty, ch in tiles_in_aabb(tilemap, rect.inflate(-8, -2)):
+            if ch in ('|', '^', 'F') or solid(ch):
+                if rect.colliderect(pygame.Rect(tx*TILE, ty*TILE, TILE, TILE)):
+                    return False
+        return True
+
+    def set_form(self, form, tilemap=None):
+        if form == self.form:
+            return True
+
+        if form == "big":
+            can_stand = self._rect_fits(tilemap, H_STAND_BIG)
+            if not can_stand and not self._rect_fits(tilemap, H_CROUCH_BIG):
+                return False
+            self.form = "big"
+            self.h_stand = H_STAND_BIG
+            self.h_crouch = H_CROUCH_BIG
+            if can_stand and not self.crouch:
+                self.h = self.h_stand
+            else:
+                self.crouch = True
+                self.h = self.h_crouch
+        else:
+            self.form = "small"
+            self.h_stand = H_STAND
+            self.h_crouch = H_CROUCH
+            if self.crouch and not self._rect_fits(tilemap, self.h_crouch):
+                self.crouch = False
+            if not self.crouch and not self._rect_fits(tilemap, self.h_stand):
+                self.crouch = True
+            self.h = self.h_crouch if self.crouch else self.h_stand
+        return True
+
+    def collect_powerup(self, kind, tilemap, particles):
+        if kind == "mushroom":
+            already_big = self.form == "big"
+            grew = self.set_form("big", tilemap)
+            if grew:
+                self.power_flash = 0.6 if not already_big else 0.3
+                self.inv = max(self.inv, 0.4)
+                count = 20 if not already_big else 10
+                for _ in range(count):
+                    ang = random.random()*math.tau
+                    spd = random.uniform(160, 360)
+                    particles.append(Particle(self.x, self.y - self.h/2,
+                                              math.cos(ang)*spd, math.sin(ang)*spd - 140,
+                                              0.45, (255, 200, 120), 5))
+            return grew
+        return False
+
+    def take_damage(self, tilemap, particles):
+        if self.inv > 0:
+            return False
+        if self.form == "big":
+            self.set_form("small", tilemap)
+            self.inv = max(self.inv, 1.2)
+            self.power_flash = 0.0
+            self.vy = min(self.vy, -260)
+            for _ in range(18):
+                ang = random.random()*math.tau
+                spd = random.uniform(120, 320)
+                particles.append(Particle(self.x, self.y - self.h/2,
+                                          math.cos(ang)*spd, math.sin(ang)*spd - 200,
+                                          0.4, (255, 160, 120), 5))
+            return False
         return True
 
     def _set_crouch(self, want_crouch, tilemap):
@@ -246,6 +326,7 @@ class Player:
         if self.inv > 0: self.inv -= dt
         if self.skid_t > 0: self.skid_t -= dt
         if self.crouch_slide_t > 0: self.crouch_slide_t -= dt
+        if self.power_flash > 0: self.power_flash = max(0.0, self.power_flash - dt)
 
         ax = self.input_axis(keys)
         shift_held    = keys.get("shift_held", False)
@@ -413,13 +494,28 @@ class Player:
             pygame.draw.rect(srf, (255,255,255,a//3), (0,0,self.w,self.h), border_radius=10)
             surf.blit(srf, (tx - self.w/2 - camx, ty - self.h - camy))
 
-        color = (255, 215, 80) if self.sprint and self.dash_t<=0 else COL_PLAYER
+        color = (255, 215, 80) if self.sprint and self.dash_t<=0 else (COL_PLAYER_BIG if self.form == "big" else COL_PLAYER)
         foot_x = self.x - camx; foot_y = self.y - camy
+        crouching = abs(self.h - self.h_stand) > 0.1
+        if self.power_flash > 0:
+            alpha = int(255 * clamp(self.power_flash / 0.6, 0.0, 1.0))
+            glow = pygame.Surface((self.w + 20, self.h + 20), pygame.SRCALPHA)
+            pygame.draw.ellipse(glow, (255, 220, 160, alpha), glow.get_rect())
+            surf.blit(glow, (foot_x - (self.w + 20)/2, foot_y - self.h - 10))
         base = pygame.Surface((self.w, self.h), pygame.SRCALPHA)
         pygame.draw.rect(base, color, (0,0,self.w,self.h), border_radius=10)
         eye_x = self.w//2 + (8 * (1 if self.facing>0 else -1))
-        eye_y = 12 if self.h == H_CROUCH else 14
-        pygame.draw.circle(base, (40,40,60), (eye_x, eye_y), 4)
+        if self.form == "big":
+            eye_radius = 5
+            eye_y = 18 if not crouching else 12
+        else:
+            eye_radius = 4
+            eye_y = 12 if crouching else 14
+        pygame.draw.circle(base, (40,40,60), (eye_x, eye_y), eye_radius)
+        if self.inv > 0 and self.dash_t <= 0 and int(self.inv*15) % 2 == 0:
+            shade = pygame.Surface((self.w, self.h), pygame.SRCALPHA)
+            shade.fill((255, 255, 255, 110))
+            base.blit(shade, (0, 0), special_flags=pygame.BLEND_PREMULTIPLIED)
         img = pygame.transform.rotate(base, self.visual_tilt) if abs(self.visual_tilt) > 0.5 else base
         dest = img.get_rect(); dest.midbottom = (int(foot_x), int(foot_y))
         surf.blit(img, dest)
@@ -576,6 +672,7 @@ class Game:
         start_x = 3*TILE + TILE//2
         ground_y = (len(self.tilemap)-1)*TILE
         self.player = Player(start_x, ground_y)
+        self.player.set_form("small", self.tilemap)
         self.enemies = []
         for ty, row in enumerate(self.tilemap):
             for tx, ch in enumerate(row):
@@ -600,6 +697,7 @@ class Game:
 
         self.hints = [
             (TILE*0,   TILE*7, TILE*18,  TILE*13, "S oder ↓: DUCKEN – niedrige Durchgänge nur geduckt!", "always"),
+            (TILE*10,  TILE*6, TILE*26,  TILE*12, "Pilze einsammeln: Du wirst groß und hältst einen Treffer aus!", "always"),
             (TILE*14,  TILE*6, TILE*28,  TILE*12, "Left-Shift: SPRINT (von Anfang an)", "always"),
             (TILE*32,  TILE*6, TILE*48,  TILE*12, "Sprint: schneller & höher/weiter springen", "always"),
             (TILE*92,  TILE*6, TILE*106, TILE*12, "★ Dash-Kern: Einsammeln zum Freischalten!", "locked"),
@@ -718,9 +816,17 @@ class Game:
                 direction = self.player.dash_dir if self.player.dash_dir else (1 if self.player.vx >= 0 else -1)
                 enemy.hit_by_dash(self.particles, direction)
                 continue
-            if self.player.inv <= 0:
+            if self.player.inv > 0:
+                continue
+            if self.player.take_damage(self.tilemap, self.particles):
                 self.state = "DEAD"
                 break
+            knock = 1 if self.player.x >= enemy.x else -1
+            self.player.vx = 280 * knock
+            self.player.vy = -280
+            self.player.x += knock * 8
+            r = self.player.rect
+            continue
 
         self.enemies = [e for e in self.enemies if not e.remove]
 
@@ -739,9 +845,20 @@ class Game:
                     ang = random.random()*math.tau; spd = random.uniform(180, 480)
                     self.particles.append(Particle(cx, cy, math.cos(ang)*spd, math.sin(ang)*spd-160, 0.6, COL_DASHITEM, 6))
                 self.toast = "Dash freigeschaltet!  Left-Shift tippen: Dash  •  Halten: Sprint"; self.toast_t = 4.0
+            elif ch == 'M':
+                if self.player.collect_powerup("mushroom", self.tilemap, self.particles):
+                    self.tilemap[ty][tx] = ' '
+                else:
+                    # Kein Platz zum Wachsen -> Bonus-Funken statt Powerup
+                    self.tilemap[ty][tx] = ' '
+                    cx, cy = tx*TILE + TILE/2, ty*TILE + TILE/2
+                    for _ in range(8):
+                        ang = random.random()*math.tau; spd = random.uniform(80, 220)
+                        self.particles.append(Particle(cx, cy, math.cos(ang)*spd, math.sin(ang)*spd-80, 0.3, (255, 200, 140), 4))
             elif ch == '^':
-                if self.player.inv <= 0 and r.colliderect(pygame.Rect(tx*TILE, ty*TILE, TILE, TILE)):
-                    self.state = "DEAD"
+                if r.colliderect(pygame.Rect(tx*TILE, ty*TILE, TILE, TILE)):
+                    if self.player.take_damage(self.tilemap, self.particles):
+                        self.state = "DEAD"
             elif ch == 'F':
                 if r.colliderect(pygame.Rect(tx*TILE, ty*TILE, TILE, TILE)):
                     self.state = "WIN"; break
@@ -795,6 +912,15 @@ class Game:
                     pts = [(x+TILE//2, y+12), (x+TILE-12, y+TILE//2), (x+TILE//2, y+TILE-12), (x+12, y+TILE//2)]
                     pygame.draw.polygon(self.screen, COL_DASHITEM, pts)
                     pygame.draw.polygon(self.screen, (255,255,255), pts, 2)
+                elif ch == 'M':
+                    cap_rect = pygame.Rect(x+6, y+6, TILE-12, TILE//2)
+                    pygame.draw.ellipse(self.screen, COL_MUSHROOM_TOP, cap_rect)
+                    dot_radius = max(3, TILE//10)
+                    pygame.draw.circle(self.screen, COL_MUSHROOM_DOTS, cap_rect.midleft, dot_radius)
+                    pygame.draw.circle(self.screen, COL_MUSHROOM_DOTS, cap_rect.midright, dot_radius)
+                    pygame.draw.circle(self.screen, COL_MUSHROOM_DOTS, (cap_rect.centerx, cap_rect.centery), dot_radius+2)
+                    stem = pygame.Rect(x+TILE//2-6, y+TILE//2, 12, TILE//2-6)
+                    pygame.draw.rect(self.screen, COL_MUSHROOM_STEM, stem, border_radius=4)
                 elif ch == 'F':
                     pole = pygame.Rect(x+TILE//2-2, y, 4, TILE*4)
                     pygame.draw.rect(self.screen, (220,220,230), pole)
@@ -812,7 +938,12 @@ class Game:
         sprint = "an" if (self.player.sprint and self.player.dash_t<=0) else "aus"
         crouch = "an" if self.player.crouch else "aus"
         s_dash = "freigeschaltet" if self.player.dash_unlocked else "gesperrt"
-        simg = self.font_small.render(f"Dash: {s_dash}   |   Sprint: {sprint}   |   Ducken: {crouch}", True, COL_DIM)
+        form = "groß" if self.player.form == "big" else "klein"
+        simg = self.font_small.render(
+            f"Dash: {s_dash}   |   Sprint: {sprint}   |   Ducken: {crouch}   |   Form: {form}",
+            True,
+            COL_DIM,
+        )
         self.screen.blit(simg, (16, 72))
         best = load_save().get("best_time")
         if best is not None:

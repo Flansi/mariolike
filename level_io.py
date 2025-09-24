@@ -25,12 +25,14 @@ def make_default_level() -> List[str]:
     for x in range(6, 14):
         grid[y1][x] = "="
     grid[y1 - 1][10] = "G"
+    grid[y1 - 1][7] = "M"
 
     # zweite, höher
     y2 = ground_y - 4
     for x in range(18, 28):
         grid[y2][x] = "="
     grid[y2 - 1][22] = "G"
+    grid[y2 - 2][24] = "M"
 
     # kleiner Abgrund
     for x in range(34, 37):
@@ -70,6 +72,7 @@ def make_default_level() -> List[str]:
     for x in range(130, 136):
         grid[ground_y - 2][x] = "="
         grid[ground_y - 3][x] = "C"
+    grid[ground_y - 3][124] = "M"
 
     # breite Lücke
     for x in range(144, 152):
