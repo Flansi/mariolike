@@ -160,6 +160,19 @@ class LevelEditor:
         self.message = text
         self.message_timer = 3.0
 
+    def _extend_level(self, columns: int) -> None:
+        if columns <= 0 or not self.grid:
+            return
+
+        for ty, row in enumerate(self.grid):
+            fill_char = "X" if ty == self.height - 1 else " "
+            row.extend([fill_char] * columns)
+
+        self.width += columns
+        self._show_message(
+            f"Level verlängert um {columns} Spalten (Gesamtbreite: {self.width})"
+        )
+
     def _handle_mouse(self) -> None:
         mouse_buttons = pygame.mouse.get_pressed()
         mouse_pos = pygame.mouse.get_pos()
@@ -247,6 +260,9 @@ class LevelEditor:
                     elif event.key == pygame.K_TAB:
                         direction = -1 if pygame.key.get_mods() & pygame.KMOD_SHIFT else 1
                         self._cycle_selection(direction)
+                    elif event.key == pygame.K_e:
+                        columns = 1 if pygame.key.get_mods() & pygame.KMOD_SHIFT else 10
+                        self._extend_level(columns)
                     elif event.key == pygame.K_s and not pygame.key.get_mods() & pygame.KMOD_CTRL:
                         self._save()
                     elif event.key == pygame.K_l:
@@ -327,6 +343,7 @@ class LevelEditor:
             f"Datei: {os.path.abspath(self.level_path)}",
             "Maus: Linksklick malt, Rechtsklick löscht, Mittelklick/Drag bewegt Kamera",
             "WASD/Pfeile: Kamera, Tab/Shift+Tab: Palette wechseln, 0-7: Schnellauswahl, S oder Strg+S: speichern, L: neu laden",
+            "E: Level um 10 Spalten verlängern (mit Shift: 1 Spalte)",
         ]
         for i, text in enumerate(info_lines):
             surf = self.font_small.render(text, True, (200, 205, 215))
