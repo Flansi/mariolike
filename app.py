@@ -486,7 +486,7 @@ class Goomba:
             prev_rect = self.rect.copy()
             self.y += step_dy
             r = self.rect
-            for tx, ty, ch in tiles_in_aabb(tilemap, r.inflate(-6, 0)):
+            for tx, ty, ch in tiles_in_aabb(tilemap, r):
                 if ch in ('|', 'F'):
                     ch = 'X'
                 if solid(ch):
