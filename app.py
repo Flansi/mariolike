@@ -330,6 +330,15 @@ class Player:
         if self.skid_t > 0: self.skid_t -= dt
         if self.crouch_slide_t > 0: self.crouch_slide_t -= dt
         if self.power_flash > 0: self.power_flash = max(0.0, self.power_flash - dt)
+        if self.trail:
+            decay = 3.5 * dt
+            maxlen = self.trail.maxlen
+            new_trail = deque(maxlen=maxlen)
+            for tx, ty, alpha in self.trail:
+                alpha -= decay
+                if alpha > 0:
+                    new_trail.append((tx, ty, alpha))
+            self.trail = new_trail
 
         ax = self.input_axis(keys)
         shift_held    = keys.get("shift_held", False)
@@ -494,7 +503,10 @@ class Player:
 
     def draw(self, surf, camx, camy):
         for i, (tx, ty, alpha) in enumerate(self.trail):
-            t = (i+1)/len(self.trail); a = int(180*t)
+            t = clamp(alpha, 0.0, 1.0)
+            a = int(200 * t)
+            if len(self.trail) > 1:
+                a = int(a * ((i + 1) / len(self.trail)))
             srf = pygame.Surface((self.w, self.h), pygame.SRCALPHA)
             pygame.draw.rect(srf, (255,255,255,a//3), (0,0,self.w,self.h), border_radius=10)
             surf.blit(srf, (tx - self.w/2 - camx, ty - self.h - camy))
