@@ -22,6 +22,7 @@ PALETTE: List[Tuple[str, str, Tuple[int, int, int]]] = [
     ("B", "Item-Block", (240, 190, 80)),
     ("Q", "Coin-Block", (245, 200, 70)),
     ("S", "Zerbrechlich", (200, 140, 90)),
+    ("H", "Kopfzerbrecher", (205, 150, 100)),
     ("M", "Pilz", (220, 80, 80)),
     ("G", "Goomba", (190, 110, 70)),
     ("|", "Gate", (110, 210, 255)),
@@ -86,6 +87,15 @@ def draw_tile(surface: pygame.Surface, char: str, rect: pygame.Rect) -> None:
         pygame.draw.rect(surface, (240, 195, 150), top, border_radius=6)
         crack = pygame.Rect(rect.centerx - 10, rect.centery - 2, 20, 4)
         pygame.draw.rect(surface, (120, 80, 50), crack, border_radius=2)
+        return
+
+    if char == "H":
+        pygame.draw.rect(surface, (205, 150, 100), rect, border_radius=6)
+        top = rect.copy()
+        top.height = max(4, rect.height // 4)
+        pygame.draw.rect(surface, (245, 205, 155), top, border_radius=6)
+        notch = pygame.Rect(rect.centerx - 6, rect.centery - 6, 12, 12)
+        pygame.draw.rect(surface, (150, 110, 70), notch, border_radius=3)
         return
 
     if char == "M":

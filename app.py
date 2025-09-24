@@ -78,6 +78,8 @@ COL_COIN_BLOCK = (245, 200, 70)
 COL_COIN_BLOCK_TOP = (255, 235, 150)
 COL_BREAKABLE = (200, 140, 90)
 COL_BREAKABLE_TOP = (240, 195, 150)
+COL_BRICK = (205, 150, 100)
+COL_BRICK_TOP = (245, 205, 155)
 COL_GATE = (110, 210, 255)
 COL_FLAG = (255, 130, 180)
 COL_PLAYER = (255, 190, 40)
@@ -98,6 +100,7 @@ SAVE_FILE = "platformer_save.json"
 # 'B' = Item-Block (spawnt Pilz)
 # 'Q' = Coin-Block (gibt eine sofort gesammelte Münze)
 # 'S' = Zerbrechlicher Block (nur als großer Spieler zerstörbar)
+# 'H' = Kopfzerbrecher (von unten als großer Spieler zerstörbar)
 # '|' = Dash-Gate
 # 'D' = Dash-Kern (Item)
 # 'F' = Flagge / Ziel
@@ -139,7 +142,7 @@ def tiles_in_aabb(tilemap, rect):
             if ch != ' ':
                 yield tx, ty, ch
 
-def solid(ch): return ch in ('X', '=', 'B', 'S', 'Q')
+def solid(ch): return ch in ('X', '=', 'B', 'S', 'Q', 'H')
 
 # ------------- Entities -------------
 class Particle:
@@ -500,7 +503,7 @@ class Player:
                     elif step_dy < 0:
                         if prev_rect.top >= tile_r.bottom and r.top <= tile_r.bottom:
                             self.y = tile_r.bottom + self.h; self.vy = 0; r = self.rect
-                            if ch in ('B', 'S', 'Q') and hit_block_cb:
+                            if ch in ('B', 'S', 'Q', 'H') and hit_block_cb:
                                 hit_block_cb(tx, ty, ch, self)
 
         # visueller Tilt
@@ -877,6 +880,22 @@ class Game:
                 vx = math.cos(angle) * speed
                 vy = math.sin(angle) * speed - 60
                 self.particles.append(Particle(spawn_x, block_top, vx, vy, 0.35, (235, 200, 150), 4))
+        elif ch == 'H':
+            if player.form != "big":
+                return
+            self.tilemap[ty][tx] = ' '
+            for _ in range(16):
+                speed = random.uniform(240, 520)
+                angle = random.uniform(-math.pi * 0.9, -math.pi * 0.1)
+                vx = math.cos(angle) * speed
+                vy = math.sin(angle) * speed - 80
+                self.particles.append(Particle(spawn_x,
+                                              block_top,
+                                              vx,
+                                              vy,
+                                              0.35,
+                                              (245, 210, 170),
+                                              4))
 
     def camera_follow(self, dt):
         target_x = self.player.x - WIDTH*0.4
@@ -1092,6 +1111,11 @@ class Game:
                     pygame.draw.rect(self.screen, COL_BREAKABLE, r, border_radius=6)
                     top = r.copy(); top.h = max(6, r.h//5)
                     pygame.draw.rect(self.screen, COL_BREAKABLE_TOP, top, border_radius=6)
+                elif ch == 'H':
+                    r = pygame.Rect(x, y, TILE, TILE)
+                    pygame.draw.rect(self.screen, COL_BRICK, r, border_radius=6)
+                    top = r.copy(); top.h = max(6, r.h//5)
+                    pygame.draw.rect(self.screen, COL_BRICK_TOP, top, border_radius=6)
                 elif ch == 'B':
                     r = pygame.Rect(x, y, TILE, TILE)
                     pygame.draw.rect(self.screen, COL_ITEM_BLOCK, r, border_radius=6)
