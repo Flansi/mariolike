@@ -1,9 +1,13 @@
-import pygame
-import math
+import argparse
 import json
+import math
 import os
 import random
 from collections import deque
+
+import pygame
+
+from level_io import load_level
 
 # =========================
 # 2D PLATFORMER (pygame only)
@@ -82,8 +86,6 @@ SAVE_FILE = "platformer_save.json"
 # 'D' = Dash-Kern (Item)
 # 'F' = Flagge / Ziel
 
-FIRST_PLATFORM_IS_LOW = True  # 1 Tile Luft -> nur geduckt passierbar
-
 # ------------- Utilities -------------
 def clamp(v, a, b):
     return a if v < a else b if v > b else v
@@ -105,67 +107,7 @@ def save_save(data):
         pass
 
 # ------------- Level creation -------------
-def make_level():
-    W, H = 180, 14
-    grid = [[' ' for _ in range(W)] for _ in range(H)]
-    ground_y = 13
-
-    for x in range(W):
-        grid[ground_y][x] = 'X'
-
-    # niedrige Plattform (nur geduckt)
-    y1 = ground_y - 2 if FIRST_PLATFORM_IS_LOW else ground_y - 3
-    for x in range(6, 14): grid[y1][x] = '='
-    # zweite, höher
-    y2 = ground_y - 4
-    for x in range(18, 28): grid[y2][x] = '='
-
-    # kleiner Abgrund
-    for x in range(34, 37): grid[ground_y][x] = ' '
-
-    # Stacheln + Coins
-    grid[ground_y-1][42] = '^'
-    for x in range(44, 50):
-        grid[ground_y-4][x] = '='
-        grid[ground_y-5][x] = 'C'
-
-    for x in range(52, 56): grid[ground_y-3][x] = '='
-    for x in range(58, 62):
-        grid[ground_y-5][x] = '='
-        grid[ground_y-6][x] = 'C'
-
-    for x in range(68, 72): grid[ground_y-2][x] = '='
-    for x in range(76, 80): grid[ground_y-3][x] = '='
-
-    # Dash-Kern
-    for x in range(94, 102): grid[ground_y-2][x] = '='
-    grid[ground_y-3][98] = 'D'
-
-    # Gate-Korridor
-    for x in range(122, 132): grid[ground_y-3][x] = '='
-    for x in range(118, 122): grid[ground_y-1][x] = '='
-    gx = 128
-    grid[ground_y-1][gx] = '|'; grid[ground_y-2][gx] = '|'
-    for x in range(130, 136):
-        grid[ground_y-2][x] = '='
-        grid[ground_y-3][x] = 'C'
-
-    # breite Lücke
-    for x in range(144, 152): grid[ground_y][x] = ' '
-    for x in range(138, 142): grid[ground_y-1][x] = '='
-    for x in range(152, 158): grid[ground_y-1][x] = '='
-    for x in range(154, 157): grid[ground_y-3][x] = 'C'
-
-    grid[ground_y-1][160] = '^'; grid[ground_y-1][161] = '^'
-    for x in range(164, 169): grid[ground_y-4][x] = '='
-    for x in range(165, 169): grid[ground_y-5][x] = 'C'
-
-    grid[ground_y-4][172] = 'F'
-    for y in range(ground_y-3, ground_y+1): grid[y][172] = 'X'
-
-    return [''.join(row) for row in grid]
-
-LEVEL = make_level()
+LEVEL, LEVEL_SOURCE = load_level(return_source=True)
 
 # ------------- World helpers -------------
 def tiles_in_aabb(tilemap, rect):
@@ -699,5 +641,29 @@ class Game:
             pygame.display.flip()
 
 # ------------- main -------------
-if __name__ == "__main__":
+def main():
+    parser = argparse.ArgumentParser(description="Dash-Platformer starten")
+    parser.add_argument(
+        "--level",
+        dest="level",
+        help=(
+            "Pfad zu einer Level-Datei (JSON oder Text). "
+            "Fehlt der Parameter, wird zuerst die Umgebungsvariable "
+            "PLATFORMER_LEVEL_FILE und dann custom_level.json geprüft."
+        ),
+    )
+    args = parser.parse_args()
+
+    global LEVEL, LEVEL_SOURCE
+    LEVEL, LEVEL_SOURCE = load_level(args.level, return_source=True)
+
+    if LEVEL_SOURCE:
+        print(f"Level geladen aus: {LEVEL_SOURCE}")
+    else:
+        print("Standardlevel wird verwendet.")
+
     Game().run()
+
+
+if __name__ == "__main__":
+    main()
