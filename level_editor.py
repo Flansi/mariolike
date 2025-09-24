@@ -19,6 +19,7 @@ PALETTE: List[Tuple[str, str, Tuple[int, int, int]]] = [
     ("=", "Plattform", (105, 135, 175)),
     ("^", "Stachel", (240, 90, 90)),
     ("C", "Coin", (255, 225, 90)),
+    ("B", "Item-Block", (240, 190, 80)),
     ("M", "Pilz", (220, 80, 80)),
     ("G", "Goomba", (190, 110, 70)),
     ("|", "Gate", (110, 210, 255)),
@@ -52,6 +53,17 @@ def draw_tile(surface: pygame.Surface, char: str, rect: pygame.Rect) -> None:
     if char == "C":
         pygame.draw.circle(surface, (255, 225, 90), rect.center, rect.width // 2 - 6)
         pygame.draw.circle(surface, (255, 240, 140), rect.center, rect.width // 2 - 6, 2)
+        return
+
+    if char == "B":
+        pygame.draw.rect(surface, (240, 190, 80), rect, border_radius=6)
+        top = rect.copy()
+        top.height = max(4, rect.height // 4)
+        pygame.draw.rect(surface, (255, 225, 140), top, border_radius=6)
+        mark = pygame.Rect(rect.centerx - 6, rect.y + rect.height // 3 - 6, 12, 12)
+        pygame.draw.rect(surface, (90, 70, 40), mark, border_radius=4)
+        dot = pygame.Rect(rect.centerx - 3, rect.y + int(rect.height * 0.72), 6, 6)
+        pygame.draw.rect(surface, (90, 70, 40), dot, border_radius=3)
         return
 
     if char == "M":
