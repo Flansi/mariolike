@@ -72,6 +72,8 @@ COL_SOLID = (74, 96, 130)
 COL_SOLID_TOP = (105, 135, 175)
 COL_SPIKE = (240, 90, 90)
 COL_COIN = (255, 225, 90)
+COL_ITEM_BLOCK = (240, 190, 80)
+COL_ITEM_BLOCK_TOP = (255, 225, 140)
 COL_GATE = (110, 210, 255)
 COL_FLAG = (255, 130, 180)
 COL_PLAYER = (255, 190, 40)
@@ -89,6 +91,7 @@ SAVE_FILE = "platformer_save.json"
 # '=' = schwebende Plattform (auch solide)
 # '^' = Stachel
 # 'C' = Coin
+# 'B' = Item-Block (spawnt Pilz)
 # '|' = Dash-Gate
 # 'D' = Dash-Kern (Item)
 # 'F' = Flagge / Ziel
@@ -130,7 +133,7 @@ def tiles_in_aabb(tilemap, rect):
             if ch != ' ':
                 yield tx, ty, ch
 
-def solid(ch): return ch in ('X', '=')
+def solid(ch): return ch in ('X', '=', 'B')
 
 # ------------- Entities -------------
 class Particle:
@@ -318,7 +321,7 @@ class Player:
             vy = -random.uniform(20, 140 if burst else 80)
             particles.append(Particle(fx, fy, vx, vy, 0.35 if burst else 0.25, (210,215,230), 5))
 
-    def update(self, dt, keys, tilemap, particles, destroy_gate_cb):
+    def update(self, dt, keys, tilemap, particles, destroy_gate_cb, hit_block_cb=None):
         if self.since_ground < 10: self.since_ground += dt
         if self.jump_buf > 0: self.jump_buf -= dt
         if self.dash_t > 0: self.dash_t -= dt
@@ -482,6 +485,8 @@ class Player:
                     elif step_dy < 0:
                         if prev_rect.top >= tile_r.bottom and r.top <= tile_r.bottom:
                             self.y = tile_r.bottom + self.h; self.vy = 0; r = self.rect
+                            if ch == 'B' and hit_block_cb:
+                                hit_block_cb(tx, ty)
 
         # visueller Tilt
         tilt_target = (-SKID_TILT_DEG * self.skid_dir) if self.skid_t > 0 else 0.0
@@ -519,6 +524,103 @@ class Player:
         img = pygame.transform.rotate(base, self.visual_tilt) if abs(self.visual_tilt) > 0.5 else base
         dest = img.get_rect(); dest.midbottom = (int(foot_x), int(foot_y))
         surf.blit(img, dest)
+
+class MushroomItem:
+    SPEED = 160.0
+    EMERGE_SPEED = 180.0
+    GRAVITY = GRAVITY
+    MAX_FALL = MAX_FALL
+
+    def __init__(self, x, block_top, direction):
+        self.x = x
+        self.w = 40
+        self.h = 40
+        self.target_y = block_top
+        self.y = block_top + self.h
+        self.vx = 0.0
+        self.vy = 0.0
+        self.direction = 1 if direction >= 0 else -1
+        self.state = "emerging"
+        self.remove = False
+
+    @property
+    def rect(self):
+        return pygame.Rect(int(self.x - self.w/2), int(self.y - self.h), self.w, self.h)
+
+    def update(self, dt, tilemap):
+        if self.remove:
+            return
+
+        if self.state == "emerging":
+            self.y -= self.EMERGE_SPEED * dt
+            if self.y <= self.target_y:
+                self.y = self.target_y
+                self.state = "active"
+                self.vx = self.direction * self.SPEED
+            return
+
+        self.vy += self.GRAVITY * dt
+        self.vy = clamp(self.vy, -9999, self.MAX_FALL)
+
+        self.x += self.vx * dt
+        r = self.rect
+        hit_wall = False
+        for tx, ty, ch in tiles_in_aabb(tilemap, r.inflate(2, -4)):
+            if ch in ('|', 'F'):
+                ch = 'X'
+            if solid(ch):
+                tile_r = pygame.Rect(tx*TILE, ty*TILE, TILE, TILE)
+                if r.colliderect(tile_r):
+                    hit_wall = True
+                    if self.vx > 0:
+                        self.x = tile_r.left - (self.w/2)
+                    elif self.vx < 0:
+                        self.x = tile_r.right + (self.w/2)
+                    r = self.rect
+        if hit_wall:
+            self.vx *= -1
+
+        total_dy = self.vy * dt
+        steps = max(1, int(abs(total_dy)//max(1, TILE//6)) + 1)
+        step_dy = total_dy / steps
+        for _ in range(steps):
+            prev_rect = self.rect.copy()
+            self.y += step_dy
+            r = self.rect
+            for tx, ty, ch in tiles_in_aabb(tilemap, r):
+                if ch in ('|', 'F'):
+                    ch = 'X'
+                if solid(ch):
+                    tile_r = pygame.Rect(tx*TILE, ty*TILE, TILE, TILE)
+                    if not r.colliderect(tile_r):
+                        continue
+                    if step_dy > 0:
+                        if prev_rect.bottom <= tile_r.top and r.bottom >= tile_r.top:
+                            self.y = tile_r.top
+                            self.vy = 0
+                            r = self.rect
+                    elif step_dy < 0:
+                        if prev_rect.top >= tile_r.bottom and r.top <= tile_r.bottom:
+                            self.y = tile_r.bottom + self.h
+                            self.vy = 0
+                            r = self.rect
+
+        level_h = len(tilemap) * TILE
+        if self.y > level_h + 200:
+            self.remove = True
+
+    def draw(self, surf, camx, camy):
+        if self.remove:
+            return
+        rect = pygame.Rect(int(self.x - self.w/2 - camx), int(self.y - self.h - camy), self.w, self.h)
+        cap_rect = pygame.Rect(rect.x + 6, rect.y + 6, rect.w - 12, rect.h//2)
+        pygame.draw.ellipse(surf, COL_MUSHROOM_TOP, cap_rect)
+        dot_radius = max(3, rect.w//10)
+        pygame.draw.circle(surf, COL_MUSHROOM_DOTS, cap_rect.midleft, dot_radius)
+        pygame.draw.circle(surf, COL_MUSHROOM_DOTS, cap_rect.midright, dot_radius)
+        pygame.draw.circle(surf, COL_MUSHROOM_DOTS, (cap_rect.centerx, cap_rect.centery), dot_radius + 2)
+        stem = pygame.Rect(rect.centerx - 6, rect.y + rect.h//2, 12, rect.h//2 - 6)
+        pygame.draw.rect(surf, COL_MUSHROOM_STEM, stem, border_radius=4)
 
 class Goomba:
     SPEED = 110.0
@@ -674,6 +776,7 @@ class Game:
         self.player = Player(start_x, ground_y)
         self.player.set_form("small", self.tilemap)
         self.enemies = []
+        self.items = []
         for ty, row in enumerate(self.tilemap):
             for tx, ch in enumerate(row):
                 if ch == 'G':
@@ -711,6 +814,23 @@ class Game:
         if self.tilemap[ty][tx] == '|':
             self.tilemap[ty][tx] = ' '
 
+    def hit_item_block(self, tx, ty):
+        if ty < 0 or ty >= len(self.tilemap):
+            return
+        if tx < 0 or tx >= len(self.tilemap[0]):
+            return
+        if self.tilemap[ty][tx] != 'B':
+            return
+        self.tilemap[ty][tx] = 'X'
+        spawn_x = tx * TILE + TILE / 2
+        block_top = ty * TILE
+        direction = -1 if self.player.x >= spawn_x else 1
+        self.items.append(MushroomItem(spawn_x, block_top, direction))
+        for _ in range(6):
+            vx = random.uniform(-120, 120)
+            vy = random.uniform(-320, -160)
+            self.particles.append(Particle(spawn_x, block_top, vx, vy, 0.25, (255, 220, 150), 4))
+
     def camera_follow(self, dt):
         target_x = self.player.x - WIDTH*0.4
         level_w = len(self.tilemap[0]) * TILE
@@ -742,8 +862,33 @@ class Game:
         }
         self._jp_last = jp; self._sh_last = sh; self._cr_last = cr
 
-        self.player.update(dt, keys, self.tilemap, self.particles, self.destroy_gate)
+        self.player.update(dt, keys, self.tilemap, self.particles, self.destroy_gate, self.hit_item_block)
         if keys["jump_pressed"]: self.player.try_jump()
+
+        for item in self.items:
+            item.update(dt, self.tilemap)
+
+        player_rect = self.player.rect
+        for item in self.items:
+            if item.remove or item.state != "active":
+                continue
+            if player_rect.colliderect(item.rect):
+                if self.player.collect_powerup("mushroom", self.tilemap, self.particles):
+                    item.remove = True
+                else:
+                    item.remove = True
+                    cx, cy = item.x, item.y - item.h / 2
+                    for _ in range(8):
+                        ang = random.random()*math.tau
+                        spd = random.uniform(80, 220)
+                        self.particles.append(Particle(cx, cy,
+                                                      math.cos(ang)*spd,
+                                                      math.sin(ang)*spd - 80,
+                                                      0.3,
+                                                      (255, 200, 140),
+                                                      4))
+
+        self.items = [i for i in self.items if not i.remove]
 
         for enemy in self.enemies:
             enemy.update(dt, self.tilemap)
@@ -895,6 +1040,15 @@ class Game:
                     pygame.draw.rect(self.screen, COL_SOLID, r, border_radius=6)
                     top = r.copy(); top.h = max(6, r.h//5)
                     pygame.draw.rect(self.screen, COL_SOLID_TOP, top, border_radius=6)
+                elif ch == 'B':
+                    r = pygame.Rect(x, y, TILE, TILE)
+                    pygame.draw.rect(self.screen, COL_ITEM_BLOCK, r, border_radius=6)
+                    top = r.copy(); top.h = max(6, r.h//5)
+                    pygame.draw.rect(self.screen, COL_ITEM_BLOCK_TOP, top, border_radius=6)
+                    mark = pygame.Rect(r.centerx - 7, r.y + r.h//3 - 6, 14, 14)
+                    pygame.draw.rect(self.screen, (90, 70, 40), mark, border_radius=6)
+                    dot = pygame.Rect(r.centerx - 4, r.y + int(r.h*0.7), 8, 8)
+                    pygame.draw.rect(self.screen, (90, 70, 40), dot, border_radius=4)
                 elif ch == '^':
                     pts = [(x, y+TILE), (x+TILE/2, y), (x+TILE, y+TILE)]
                     pygame.draw.polygon(self.screen, COL_SPIKE, pts)
@@ -925,6 +1079,9 @@ class Game:
                     pole = pygame.Rect(x+TILE//2-2, y, 4, TILE*4)
                     pygame.draw.rect(self.screen, (220,220,230), pole)
                     pygame.draw.polygon(self.screen, COL_FLAG, [(pole.right, y+10), (pole.right+26, y+22), (pole.right, y+34)])
+
+        for item in self.items:
+            item.draw(self.screen, camx, camy)
 
         for enemy in self.enemies:
             enemy.draw(self.screen, camx, camy)
