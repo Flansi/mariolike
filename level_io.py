@@ -24,11 +24,13 @@ def make_default_level() -> List[str]:
     y1 = ground_y - 2 if FIRST_PLATFORM_IS_LOW else ground_y - 3
     for x in range(6, 14):
         grid[y1][x] = "="
+    grid[y1 - 1][10] = "G"
 
     # zweite, höher
     y2 = ground_y - 4
     for x in range(18, 28):
         grid[y2][x] = "="
+    grid[y2 - 1][22] = "G"
 
     # kleiner Abgrund
     for x in range(34, 37):
@@ -50,6 +52,7 @@ def make_default_level() -> List[str]:
         grid[ground_y - 2][x] = "="
     for x in range(76, 80):
         grid[ground_y - 3][x] = "="
+    grid[ground_y - 1][78] = "G"
 
     # Dash-Kern
     for x in range(94, 102):
