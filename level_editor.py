@@ -9,7 +9,7 @@ from level_io import DEFAULT_LEVEL_FILE, load_level, save_level
 
 WINDOW_WIDTH = 1280
 WINDOW_HEIGHT = 800
-PALETTE_HEIGHT = 140
+PALETTE_HEIGHT = 200
 TILE_SIZE = 32
 CAMERA_SPEED = 600
 
@@ -390,8 +390,21 @@ class LevelEditor:
 
         # Palette Zeichnen
         palette_x = 640
+        slot_spacing = 70
+        slot_size = 56
+        row_height = 80
+        available_width = max(0, WINDOW_WIDTH - palette_x - 16)
+        slots_per_row = max(1, available_width // slot_spacing)
+
         for idx, (char, label, color) in enumerate(PALETTE):
-            slot = pygame.Rect(palette_x + idx * 70, 16, 56, 56)
+            row = idx // slots_per_row
+            col = idx % slots_per_row
+            slot = pygame.Rect(
+                palette_x + col * slot_spacing,
+                16 + row * row_height,
+                slot_size,
+                slot_size,
+            )
             pygame.draw.rect(panel, (40, 42, 56), slot, border_radius=8)
             inner = slot.inflate(-10, -10)
             pygame.draw.rect(panel, color, inner, border_radius=6)
