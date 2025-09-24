@@ -74,6 +74,8 @@ COL_SPIKE = (240, 90, 90)
 COL_COIN = (255, 225, 90)
 COL_ITEM_BLOCK = (240, 190, 80)
 COL_ITEM_BLOCK_TOP = (255, 225, 140)
+COL_COIN_BLOCK = (245, 200, 70)
+COL_COIN_BLOCK_TOP = (255, 235, 150)
 COL_BREAKABLE = (200, 140, 90)
 COL_BREAKABLE_TOP = (240, 195, 150)
 COL_GATE = (110, 210, 255)
@@ -94,6 +96,7 @@ SAVE_FILE = "platformer_save.json"
 # '^' = Stachel
 # 'C' = Coin
 # 'B' = Item-Block (spawnt Pilz)
+# 'Q' = Coin-Block (gibt eine sofort gesammelte Münze)
 # 'S' = Zerbrechlicher Block (nur als großer Spieler zerstörbar)
 # '|' = Dash-Gate
 # 'D' = Dash-Kern (Item)
@@ -136,7 +139,7 @@ def tiles_in_aabb(tilemap, rect):
             if ch != ' ':
                 yield tx, ty, ch
 
-def solid(ch): return ch in ('X', '=', 'B', 'S')
+def solid(ch): return ch in ('X', '=', 'B', 'S', 'Q')
 
 # ------------- Entities -------------
 class Particle:
@@ -497,7 +500,7 @@ class Player:
                     elif step_dy < 0:
                         if prev_rect.top >= tile_r.bottom and r.top <= tile_r.bottom:
                             self.y = tile_r.bottom + self.h; self.vy = 0; r = self.rect
-                            if ch in ('B', 'S') and hit_block_cb:
+                            if ch in ('B', 'S', 'Q') and hit_block_cb:
                                 hit_block_cb(tx, ty, ch, self)
 
         # visueller Tilt
@@ -799,7 +802,7 @@ class Game:
                     gy = (ty+1)*TILE
                     self.enemies.append(Goomba(gx, gy))
                     self.tilemap[ty][tx] = ' '
-        self.coins_total = sum(row.count('C') for row in self.tilemap)
+        self.coins_total = sum(row.count('C') + row.count('Q') for row in self.tilemap)
         self.coins_got = 0
         self.time = 0.0
         self.state = "RUN"
@@ -848,6 +851,22 @@ class Game:
                 vx = random.uniform(-120, 120)
                 vy = random.uniform(-320, -160)
                 self.particles.append(Particle(spawn_x, block_top, vx, vy, 0.25, (255, 220, 150), 4))
+        elif ch == 'Q':
+            self.tilemap[ty][tx] = 'X'
+            self.coins_got += 1
+            player.coins += 1
+            coin_y = block_top - TILE * 0.4
+            self.particles.append(Particle(spawn_x, coin_y, 0, -420, 0.35, COL_COIN, 18))
+            for _ in range(8):
+                ang = random.random()*math.tau
+                spd = random.uniform(120, 360)
+                self.particles.append(Particle(spawn_x,
+                                              coin_y,
+                                              math.cos(ang)*spd * 0.4,
+                                              math.sin(ang)*spd - 140,
+                                              0.4,
+                                              (255, 240, 160),
+                                              4))
         elif ch == 'S':
             if player.form != "big":
                 return
@@ -1006,7 +1025,7 @@ class Game:
         r = self.player.rect
         for tx, ty, ch in tiles_in_aabb(self.tilemap, r.inflate(8,8)):
             if ch == 'C':
-                self.tilemap[ty][tx] = ' '; self.coins_got += 1
+                self.tilemap[ty][tx] = ' '; self.coins_got += 1; self.player.coins += 1
                 cx, cy = tx*TILE + TILE/2, ty*TILE + TILE/2
                 for _ in range(10):
                     ang = random.random()*math.tau; spd = random.uniform(120, 360)
@@ -1082,6 +1101,15 @@ class Game:
                     pygame.draw.rect(self.screen, (90, 70, 40), mark, border_radius=6)
                     dot = pygame.Rect(r.centerx - 4, r.y + int(r.h*0.7), 8, 8)
                     pygame.draw.rect(self.screen, (90, 70, 40), dot, border_radius=4)
+                elif ch == 'Q':
+                    r = pygame.Rect(x, y, TILE, TILE)
+                    pygame.draw.rect(self.screen, COL_COIN_BLOCK, r, border_radius=6)
+                    top = r.copy(); top.h = max(6, r.h//5)
+                    pygame.draw.rect(self.screen, COL_COIN_BLOCK_TOP, top, border_radius=6)
+                    coin_rect = pygame.Rect(0, 0, max(12, TILE//2), max(12, TILE//2))
+                    coin_rect.center = (r.centerx, r.y + r.h//2)
+                    pygame.draw.ellipse(self.screen, COL_COIN, coin_rect)
+                    pygame.draw.ellipse(self.screen, (255, 240, 160), coin_rect, 3)
                 elif ch == '^':
                     pts = [(x, y+TILE), (x+TILE/2, y), (x+TILE, y+TILE)]
                     pygame.draw.polygon(self.screen, COL_SPIKE, pts)
