@@ -34,6 +34,11 @@ def make_default_level() -> List[str]:
     grid[y2 - 1][22] = "G"
     grid[y2 - 2][24] = "M"
 
+    # Zerbrechliche Blöcke über dem Boden
+    brick_y = ground_y - 4
+    for x in range(28, 32):
+        grid[brick_y][x] = "S"
+
     # kleiner Abgrund
     for x in range(34, 37):
         grid[ground_y][x] = " "
