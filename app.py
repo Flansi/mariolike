@@ -74,6 +74,8 @@ COL_SPIKE = (240, 90, 90)
 COL_COIN = (255, 225, 90)
 COL_ITEM_BLOCK = (240, 190, 80)
 COL_ITEM_BLOCK_TOP = (255, 225, 140)
+COL_BREAKABLE = (200, 140, 90)
+COL_BREAKABLE_TOP = (240, 195, 150)
 COL_GATE = (110, 210, 255)
 COL_FLAG = (255, 130, 180)
 COL_PLAYER = (255, 190, 40)
@@ -92,6 +94,7 @@ SAVE_FILE = "platformer_save.json"
 # '^' = Stachel
 # 'C' = Coin
 # 'B' = Item-Block (spawnt Pilz)
+# 'S' = Zerbrechlicher Block (nur als großer Spieler zerstörbar)
 # '|' = Dash-Gate
 # 'D' = Dash-Kern (Item)
 # 'F' = Flagge / Ziel
@@ -133,7 +136,7 @@ def tiles_in_aabb(tilemap, rect):
             if ch != ' ':
                 yield tx, ty, ch
 
-def solid(ch): return ch in ('X', '=', 'B')
+def solid(ch): return ch in ('X', '=', 'B', 'S')
 
 # ------------- Entities -------------
 class Particle:
@@ -494,8 +497,8 @@ class Player:
                     elif step_dy < 0:
                         if prev_rect.top >= tile_r.bottom and r.top <= tile_r.bottom:
                             self.y = tile_r.bottom + self.h; self.vy = 0; r = self.rect
-                            if ch == 'B' and hit_block_cb:
-                                hit_block_cb(tx, ty)
+                            if ch in ('B', 'S') and hit_block_cb:
+                                hit_block_cb(tx, ty, ch, self)
 
         # visueller Tilt
         tilt_target = (-SKID_TILT_DEG * self.skid_dir) if self.skid_t > 0 else 0.0
@@ -826,22 +829,35 @@ class Game:
         if self.tilemap[ty][tx] == '|':
             self.tilemap[ty][tx] = ' '
 
-    def hit_item_block(self, tx, ty):
+    def hit_block(self, tx, ty, ch, player):
         if ty < 0 or ty >= len(self.tilemap):
             return
         if tx < 0 or tx >= len(self.tilemap[0]):
             return
-        if self.tilemap[ty][tx] != 'B':
+        current = self.tilemap[ty][tx]
+        if current != ch:
             return
-        self.tilemap[ty][tx] = 'X'
         spawn_x = tx * TILE + TILE / 2
         block_top = ty * TILE
-        direction = -1 if self.player.x >= spawn_x else 1
-        self.items.append(MushroomItem(spawn_x, block_top, direction))
-        for _ in range(6):
-            vx = random.uniform(-120, 120)
-            vy = random.uniform(-320, -160)
-            self.particles.append(Particle(spawn_x, block_top, vx, vy, 0.25, (255, 220, 150), 4))
+
+        if ch == 'B':
+            self.tilemap[ty][tx] = 'X'
+            direction = -1 if player.x >= spawn_x else 1
+            self.items.append(MushroomItem(spawn_x, block_top, direction))
+            for _ in range(6):
+                vx = random.uniform(-120, 120)
+                vy = random.uniform(-320, -160)
+                self.particles.append(Particle(spawn_x, block_top, vx, vy, 0.25, (255, 220, 150), 4))
+        elif ch == 'S':
+            if player.form != "big":
+                return
+            self.tilemap[ty][tx] = ' '
+            for _ in range(12):
+                speed = random.uniform(200, 420)
+                angle = random.uniform(-math.pi, 0)
+                vx = math.cos(angle) * speed
+                vy = math.sin(angle) * speed - 60
+                self.particles.append(Particle(spawn_x, block_top, vx, vy, 0.35, (235, 200, 150), 4))
 
     def camera_follow(self, dt):
         target_x = self.player.x - WIDTH*0.4
@@ -874,7 +890,7 @@ class Game:
         }
         self._jp_last = jp; self._sh_last = sh; self._cr_last = cr
 
-        self.player.update(dt, keys, self.tilemap, self.particles, self.destroy_gate, self.hit_item_block)
+        self.player.update(dt, keys, self.tilemap, self.particles, self.destroy_gate, self.hit_block)
         if keys["jump_pressed"]: self.player.try_jump()
 
         for item in self.items:
@@ -1052,6 +1068,11 @@ class Game:
                     pygame.draw.rect(self.screen, COL_SOLID, r, border_radius=6)
                     top = r.copy(); top.h = max(6, r.h//5)
                     pygame.draw.rect(self.screen, COL_SOLID_TOP, top, border_radius=6)
+                elif ch == 'S':
+                    r = pygame.Rect(x, y, TILE, TILE)
+                    pygame.draw.rect(self.screen, COL_BREAKABLE, r, border_radius=6)
+                    top = r.copy(); top.h = max(6, r.h//5)
+                    pygame.draw.rect(self.screen, COL_BREAKABLE_TOP, top, border_radius=6)
                 elif ch == 'B':
                     r = pygame.Rect(x, y, TILE, TILE)
                     pygame.draw.rect(self.screen, COL_ITEM_BLOCK, r, border_radius=6)
