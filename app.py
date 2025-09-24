@@ -650,6 +650,50 @@ class Game:
         for enemy in self.enemies:
             enemy.update(dt, self.tilemap)
 
+        # handle enemy-enemy collisions (currently only goombas)
+        for i in range(len(self.enemies)):
+            a = self.enemies[i]
+            if a.remove or not getattr(a, "alive", False):
+                continue
+            rect_a = a.rect
+            for j in range(i + 1, len(self.enemies)):
+                b = self.enemies[j]
+                if b.remove or not getattr(b, "alive", False):
+                    continue
+                rect_b = b.rect
+                if not rect_a.colliderect(rect_b):
+                    continue
+
+                overlap_x = min(rect_a.right, rect_b.right) - max(rect_a.left, rect_b.left)
+                overlap_y = min(rect_a.bottom, rect_b.bottom) - max(rect_a.top, rect_b.top)
+                if overlap_x <= 0 or overlap_y <= 0:
+                    continue
+
+                # resolve primarily horizontal collisions and reverse directions
+                if overlap_x <= overlap_y:
+                    if a.x < b.x:
+                        a.x -= overlap_x / 2
+                        b.x += overlap_x / 2
+                        a.vx = -abs(a.vx)
+                        b.vx = abs(b.vx)
+                    else:
+                        a.x += overlap_x / 2
+                        b.x -= overlap_x / 2
+                        a.vx = abs(a.vx)
+                        b.vx = -abs(b.vx)
+                else:
+                    # in case of vertical overlap, separate slightly to avoid sticking
+                    if a.y < b.y:
+                        a.y -= overlap_y / 2
+                        b.y += overlap_y / 2
+                    else:
+                        a.y += overlap_y / 2
+                        b.y -= overlap_y / 2
+
+                a.facing = 1 if a.vx >= 0 else -1
+                b.facing = 1 if b.vx >= 0 else -1
+                rect_a = a.rect
+
         r = self.player.rect
         for enemy in self.enemies:
             if enemy.remove or not enemy.alive:
