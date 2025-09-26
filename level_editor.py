@@ -407,8 +407,11 @@ class LevelEditor:
         panel.fill((16, 18, 26))
         pygame.draw.rect(panel, (60, 66, 90), panel.get_rect(), 2)
 
+        left_margin = 16
+        palette_margin = 40
+
         title = self.font.render("Level-Editor", True, (235, 240, 245))
-        panel.blit(title, (16, 10))
+        panel.blit(title, (left_margin, 10))
 
         info_lines = [
             f"Datei: {os.path.abspath(self.level_path)}",
@@ -416,20 +419,39 @@ class LevelEditor:
             "WASD/Pfeile: Kamera, Tab/Shift+Tab: Palette wechseln, 0-7: Schnellauswahl, S oder Strg+S: speichern, L: neu laden",
             "E: Level um 10 Spalten verlängern (mit Shift: 1 Spalte)",
         ]
+
+        info_surfaces: list[tuple[pygame.Surface, tuple[int, int]]] = []
+        max_info_width = title.get_width()
+
         for i, text in enumerate(info_lines):
             surf = self.font_small.render(text, True, (200, 205, 215))
-            panel.blit(surf, (16, 44 + i * 22))
+            pos = (left_margin, 44 + i * 22)
+            info_surfaces.append((surf, pos))
+            max_info_width = max(max_info_width, surf.get_width())
 
+        message_surf = None
+        message_pos = (left_margin, self.panel_rect.height - 36)
         if self.message:
-            msg = self.font.render(self.message, True, (255, 255, 200))
-            panel.blit(msg, (16, self.panel_rect.height - 36))
+            message_surf = self.font.render(self.message, True, (255, 255, 200))
+            message_pos = (
+                left_margin,
+                self.panel_rect.height - message_surf.get_height() - 12,
+            )
+            max_info_width = max(max_info_width, message_surf.get_width())
 
-        # Palette Zeichnen
-        info_width = 520
+        for surf, pos in info_surfaces:
+            panel.blit(surf, pos)
+
+        if message_surf:
+            panel.blit(message_surf, message_pos)
+
+        info_right = left_margin + max_info_width
+        palette_x = int(min(info_right + palette_margin, WINDOW_WIDTH - 200))
+        palette_width = max(0, WINDOW_WIDTH - palette_x - left_margin)
         palette_area = pygame.Rect(
-            info_width,
+            palette_x,
             16,
-            max(0, WINDOW_WIDTH - info_width - 16),
+            palette_width,
             max(0, self.panel_rect.height - 32),
         )
 
