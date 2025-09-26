@@ -9,7 +9,7 @@ from level_io import DEFAULT_LEVEL_FILE, load_level, save_level
 
 WINDOW_WIDTH = 1280
 WINDOW_HEIGHT = 800
-PALETTE_HEIGHT = 200
+PALETTE_BASE_HEIGHT = 200
 TILE_SIZE = 32
 CAMERA_SPEED = 600
 
@@ -180,12 +180,25 @@ class LevelEditor:
         self.message = ""
         self.message_timer = 0.0
 
+        self._calculate_layout()
+
         if source:
             self._show_message(f"Level geladen aus: {os.path.abspath(source)}")
         else:
             self._show_message("Standardlevel geladen")
 
     # ------------- Hilfsmethoden -------------
+    def _calculate_layout(self) -> None:
+        level_pixel_height = self.height * TILE_SIZE
+        max_work_height = WINDOW_HEIGHT - PALETTE_BASE_HEIGHT
+        additional_panel_space = max(0, max_work_height - level_pixel_height)
+        panel_height = PALETTE_BASE_HEIGHT + additional_panel_space
+        work_height = max(0, WINDOW_HEIGHT - panel_height)
+
+        self.panel_rect = pygame.Rect(0, WINDOW_HEIGHT - panel_height, WINDOW_WIDTH, panel_height)
+        self.work_area = pygame.Rect(0, 0, WINDOW_WIDTH, work_height)
+        self._clamp_camera()
+
     def _clamp_camera(self) -> None:
         max_x = max(0, self.width * TILE_SIZE - self.work_area.width)
         max_y = max(0, self.height * TILE_SIZE - self.work_area.height)
@@ -295,6 +308,7 @@ class LevelEditor:
         self.grid = [list(row) for row in data]
         self.height = len(self.grid)
         self.width = len(self.grid[0]) if self.grid else 0
+        self._calculate_layout()
         if source:
             self._show_message(f"Level neu geladen aus: {os.path.abspath(source)}")
         else:
@@ -303,7 +317,6 @@ class LevelEditor:
     # ------------- Hauptschleife -------------
     def run(self) -> None:
         running = True
-        self.work_area = pygame.Rect(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT - PALETTE_HEIGHT)
 
         while running:
             dt = self.clock.tick(60) / 1000.0
@@ -320,6 +333,7 @@ class LevelEditor:
                     elif event.key == pygame.K_e:
                         columns = 1 if pygame.key.get_mods() & pygame.KMOD_SHIFT else 10
                         self._extend_level(columns)
+                        self._calculate_layout()
                     elif event.key == pygame.K_s and not pygame.key.get_mods() & pygame.KMOD_CTRL:
                         self._save()
                     elif event.key == pygame.K_l:
@@ -389,7 +403,7 @@ class LevelEditor:
         self.screen.blit(work_surf, self.work_area.topleft)
 
         # Palette & Infos
-        panel = pygame.Surface((WINDOW_WIDTH, PALETTE_HEIGHT))
+        panel = pygame.Surface((WINDOW_WIDTH, self.panel_rect.height))
         panel.fill((16, 18, 26))
         pygame.draw.rect(panel, (60, 66, 90), panel.get_rect(), 2)
 
@@ -408,25 +422,38 @@ class LevelEditor:
 
         if self.message:
             msg = self.font.render(self.message, True, (255, 255, 200))
-            panel.blit(msg, (16, PALETTE_HEIGHT - 36))
+            panel.blit(msg, (16, self.panel_rect.height - 36))
 
         # Palette Zeichnen
-        palette_x = 640
-        slot_spacing = 70
+        info_width = 520
+        palette_area = pygame.Rect(
+            info_width,
+            16,
+            max(0, WINDOW_WIDTH - info_width - 16),
+            max(0, self.panel_rect.height - 32),
+        )
+
         slot_size = 56
-        row_height = 80
-        available_width = max(0, WINDOW_WIDTH - palette_x - 16)
-        slots_per_row = max(1, available_width // slot_spacing)
+        label_height = self.font_small.get_height()
+        min_col_spacing = slot_size + 24
+        cols = max(1, min(len(PALETTE), palette_area.width // min_col_spacing))
+        rows = max(1, -(-len(PALETTE) // cols))
+
+        row_spacing = palette_area.height / rows if rows else palette_area.height
+        col_spacing = palette_area.width / cols if cols else palette_area.width
 
         for idx, (char, label, color) in enumerate(PALETTE):
-            row = idx // slots_per_row
-            col = idx % slots_per_row
-            slot = pygame.Rect(
-                palette_x + col * slot_spacing,
-                16 + row * row_height,
-                slot_size,
-                slot_size,
+            row = idx // cols
+            col = idx % cols
+            slot_x = palette_area.x + col * col_spacing + (col_spacing - slot_size) / 2
+            vertical_space = row_spacing - (slot_size + label_height + 10)
+            slot_y = (
+                palette_area.y
+                + row * row_spacing
+                + max(0, vertical_space) / 2
             )
+            slot = pygame.Rect(slot_x, slot_y, slot_size, slot_size)
+
             pygame.draw.rect(panel, (40, 42, 56), slot, border_radius=8)
             inner = slot.inflate(-10, -10)
             pygame.draw.rect(panel, color, inner, border_radius=6)
@@ -434,9 +461,10 @@ class LevelEditor:
                 pygame.draw.rect(panel, (255, 255, 255), slot, 2, border_radius=8)
 
             label_surf = self.font_small.render(f"{idx}: {label}", True, (210, 215, 225))
-            panel.blit(label_surf, (slot.x, slot.bottom + 6))
+            label_pos = (slot.x, slot.bottom + 6)
+            panel.blit(label_surf, label_pos)
 
-        self.screen.blit(panel, (0, self.work_area.bottom))
+        self.screen.blit(panel, self.panel_rect.topleft)
         pygame.display.flip()
 
 
